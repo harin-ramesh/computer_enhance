@@ -92,13 +92,15 @@ fn decode_mod_10(inst: &[u8], rm: u8) -> Option<(String, usize)> {
     };
 
     let displacement = i16::from_ne_bytes([inst[2], inst[3]]);
-    let displacement = if displacement != 0 {
-        displacement.to_string()
+    if displacement != 0 {
+        if displacement > 0 {
+            Some((format!("[{} + {}]", registers, displacement), 2))
+        } else {
+            Some((format!("[{} - {}]", registers, displacement.abs()), 2))
+        }
     } else {
-        "".to_string()
-    };
-
-    Some((format!("[{} + {}]", registers, displacement), 2))
+        Some((format!("[{}]", registers), 2))
+    }
 }
 
 fn decode_registers(inst: &[u8], w: u8, mod_bits: u8, rm: u8) -> Option<(String, usize)> {
