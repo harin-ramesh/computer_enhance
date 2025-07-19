@@ -27,7 +27,13 @@ fn decode_reg(reg: u8, w: u8) -> Option<(String, usize)> {
     Some((reg.to_string(), 0))
 }
 
-fn decode_mod_00(inst: &[u8], mod_bits: u8, rm: u8) -> Option<(String, usize)> {
+fn decode_mod_00(inst: &[u8], rm: u8) -> Option<(String, usize)> {
+
+    if rm == 0b110 {
+        let displacement = i16::from_ne_bytes([inst[2], inst[3]]);
+        return Some((format!("[{}]", displacement), 2))
+    }
+
     let registers = match rm {
         0b000 => "bx + si".to_string(),
         0b001 => "bx + di".to_string(),
@@ -35,20 +41,11 @@ fn decode_mod_00(inst: &[u8], mod_bits: u8, rm: u8) -> Option<(String, usize)> {
         0b011 => "bp + di".to_string(),
         0b100 => "si".to_string(),
         0b101 => "di".to_string(),
-        0b110 => "bp".to_string(),
+//      0b110 => "bp".to_string(),
         0b111 => "bx".to_string(),
         _ => return None,
     };
 
-    if rm == 0b110 && mod_bits == 0b00 {
-        let disp_size = if mod_bits == 0b00 { 0 } else { 2 };
-        if inst.len() < 2 + disp_size {
-            return None
-        }
-
-        let displacement = i16::from_ne_bytes([inst[2], inst[3]]);
-        return Some((format!("[{}]", displacement), 2))
-    }
 
     Some((format!("[{}]", registers), 0))
 }
@@ -105,7 +102,7 @@ fn decode_mod_10(inst: &[u8], rm: u8) -> Option<(String, usize)> {
 
 fn decode_registers(inst: &[u8], w: u8, mod_bits: u8, rm: u8) -> Option<(String, usize)> {
     match mod_bits {
-        0b00 => decode_mod_00(inst, mod_bits, rm),
+        0b00 => decode_mod_00(inst, rm),
         0b01 => decode_mod_01(inst, rm),
         0b10 => decode_mod_10(inst, rm),
         0b11 => decode_reg(rm, w),
@@ -113,6 +110,7 @@ fn decode_registers(inst: &[u8], w: u8, mod_bits: u8, rm: u8) -> Option<(String,
     }
 }
 
+#[allow(unused_assignments)]
 fn decode_instruction(inst: &[u8], output: &mut File) {
     if inst.len() < 2 {
         return;
@@ -173,8 +171,78 @@ fn decode_instruction(inst: &[u8], output: &mut File) {
                     decoded_inst.push(disp_value);
                 },
                 _ => {
-                    println!("Unknown opcode: {:06b}, first_byte: {:06b}", opcode, first_byte);
-                    return;
+                    let opcode = first_byte >> 1;
+                    match opcode {
+                        0b1010000 => {
+                            decoded_inst.push("mov ax ".to_string());
+                            let w = (first_byte & 0b00000001) as u8;
+
+                            let disp_value = if w == 0 {
+                                inst_length = 2;
+                                format!(", [{}]", i8::from_ne_bytes([inst[1]]))
+                            } else {
+                                inst_length = 3;
+                                format!(", [{}]", i16::from_ne_bytes([inst[1], inst[2]]))
+                            };
+                            decoded_inst.push(disp_value);
+                        },
+                        0b1010001 => {
+                            decoded_inst.push("mov ".to_string());
+                            let w = (first_byte & 0b00000001) as u8;
+
+                            let disp_value = if w == 0 {
+                                inst_length = 2;
+                                format!("[{}]", i8::from_ne_bytes([inst[1]]))
+                            } else {
+                                inst_length = 3;
+                                format!("[{}]", i16::from_ne_bytes([inst[1], inst[2]]))
+                            };
+                            decoded_inst.push(disp_value);
+                            decoded_inst.push(", ax".to_string());
+                        },
+                        0b1100011 => {
+                            decoded_inst.push("mov ".to_string());
+
+                            let d = (first_byte >> 1) & 0b1;
+                            let w = first_byte & 0b1;
+
+                            let mod_bits = second_byte >> 6;
+                            let rm = second_byte & 0b00000111;
+
+                            // Operand decoding stays same
+                            let (operand, disp_len) = decode_registers(inst, w, mod_bits, rm).unwrap();
+
+                            // Compute where immediate starts
+                            let imm_index = 2 + disp_len;
+
+                            let immidiate_val = if w == 0 {
+                                format!("byte {}", i8::from_ne_bytes([inst[imm_index]]))
+                            } else {
+                                format!(
+                                    "word {}",
+                                    i16::from_le_bytes([inst[imm_index], inst[imm_index + 1]])
+                                )
+                            };
+
+                            // Order based on direction bit
+                            if d == 1 {
+                                decoded_inst.push(operand);
+                                decoded_inst.push(", ".to_string());
+                                decoded_inst.push(immidiate_val);
+                            } else {
+                                decoded_inst.push(immidiate_val);
+                                decoded_inst.push(", ".to_string());
+                                decoded_inst.push(operand);
+                            }
+
+                            // Final instruction length
+                            inst_length = imm_index + if w == 0 { 1 } else { 2 };
+                        }
+                        _ => {
+                            println!("Unknown opcode: {:06b}, first_byte: {:06b}", opcode, first_byte);
+                            return;
+                        },
+                    }
                 },
             }
         },
