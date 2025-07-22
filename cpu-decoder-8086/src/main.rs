@@ -137,6 +137,7 @@ fn decode_instruction(inst: &[u8], output: &mut File) {
                 0b01110111 => "jnbe",
                 0b01111011 => "jnp",
                 0b01110001 => "jno",
+                0b01111001 => "jns",
                 _ => unreachable!(),
             };
             let offset = inst[1] as i8;
@@ -145,6 +146,14 @@ fn decode_instruction(inst: &[u8], output: &mut File) {
         },
         0b11100010 => {
             decoded_inst.push(format!("loop {}", inst[1] as i8));
+            inst_length += 2;
+        },
+        0b11100001 => {
+            decoded_inst.push(format!("loopz {}", inst[1] as i8));
+            inst_length += 2;
+        },
+        0b11100000 => {
+            decoded_inst.push(format!("loopnz {}", inst[1] as i8));
             inst_length += 2;
         },
         0b11100011 => {
